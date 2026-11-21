@@ -274,6 +274,11 @@ with tab_bitacora:
             m3.metric("Riesgo MEDIUM", int((risk_upper == "MEDIUM").sum()))
             m4.metric("Riesgo LOW", int((risk_upper == "LOW").sum()))
 
+        priority_cols = ["tx_type", "risk_level", "fraud_probability"]
+        existing_priority = [c for c in priority_cols if c in df_filtered.columns]
+        remaining_cols = [c for c in df_filtered.columns if c not in existing_priority]
+        df_filtered = df_filtered[existing_priority + remaining_cols]
+        
         if df_filtered.empty:
             st.info("Ningún registro coincide con los filtros seleccionados.")
         else:
