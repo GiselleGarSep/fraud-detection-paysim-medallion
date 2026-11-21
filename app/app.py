@@ -212,14 +212,71 @@ with tab_bitacora:
         if isinstance(df_log, list):
             df_log = pd.DataFrame(df_log)
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Registros cargados", len(df_log))
-        if "risk_level" in df_log.columns:
-            high_count = int((df_log["risk_level"].astype(str).str.upper() == "HIGH").sum())
-            med_count = int((df_log["risk_level"].astype(str).str.upper() == "MEDIUM").sum())
-            m2.metric("Riesgo HIGH", high_count)
-            m3.metric("Riesgo MEDIUM", med_count)
+        df_filtered = df_log.copy()
 
-        st.dataframe(df_log, use_container_width=True, hide_index=True)
+        f_col1, f_col2, f_col3 = st.columns(3)
+
+        with f_col1:
+            if "risk_level" in df_filtered.columns:
+                risk_options = sorted(
+                    df_filtered["risk_level"].dropna().astype(str).unique().tolist()
+                )
+                selected_risks = st.multiselect(
+                    "Nivel de riesgo",
+                    options=risk_options,
+                    default=[],
+                    placeholder="Todos los niveles",
+                )
+                if selected_risks:
+                    df_filtered = df_filtered[
+                        df_filtered["risk_level"].astype(str).isin(selected_risks)
+                    ]
+            else:
+                st.caption("Columna `risk_level` no disponible.")
+
+        with f_col2:
+            if "tx_type" in df_filtered.columns:
+                tx_options = sorted(
+                    df_filtered["tx_type"].dropna().astype(str).unique().tolist()
+                )
+                selected_types = st.multiselect(
+                    "Tipo de transacción",
+                    options=tx_options,
+                    default=[],
+                    placeholder="Todos los tipos",
+                )
+                if selected_types:
+                    df_filtered = df_filtered[
+                        df_filtered["tx_type"].astype(str).isin(selected_types)
+                    ]
+            else:
+                st.caption("Columna `tx_type` no disponible.")
+
+        with f_col3:
+            if "amount" in df_filtered.columns:
+                min_amount = st.number_input(
+                    "Monto mínimo",
+                    min_value=0.0,
+                    value=0.0,
+                    step=1000.0,
+                )
+                if min_amount > 0.0:
+                    amounts_num = pd.to_numeric(df_filtered["amount"], errors="coerce")
+                    df_filtered = df_filtered[amounts_num >= min_amount]
+            else:
+                st.caption("Columna `amount` no disponible.")
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Registros mostrados", len(df_filtered))
+        if "risk_level" in df_filtered.columns:
+            risk_upper = df_filtered["risk_level"].astype(str).str.upper()
+            m2.metric("Riesgo HIGH", int((risk_upper == "HIGH").sum()))
+            m3.metric("Riesgo MEDIUM", int((risk_upper == "MEDIUM").sum()))
+            m4.metric("Riesgo LOW", int((risk_upper == "LOW").sum()))
+
+        if df_filtered.empty:
+            st.info("Ningún registro coincide con los filtros seleccionados.")
+        else:
+            st.dataframe(df_filtered, use_container_width=True, hide_index=True)
     else:
         st.caption("No hay registros en la bitácora todavía.")
