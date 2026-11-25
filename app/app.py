@@ -1,9 +1,12 @@
 import os
+from pathlib import Path
 import httpx
 import pandas as pd
 import streamlit as st
 
 from supabase_log import guardar_prediccion, obtener_bitacora, supabase_configurado
+
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo_tarjeta.svg")
 PAGE_ICON = LOGO_PATH if os.path.exists(LOGO_PATH) else "💳"
@@ -152,6 +155,21 @@ with tab_eval:
                 f"{float(prob):.2%}" if float(prob) <= 1 else f"{float(prob):.4f}",
             )
             m3.metric("Nivel de riesgo", str(risk))
+
+            # --- Tarjeta visual según el nivel de riesgo ---
+            riesgo_norm = str(risk).strip().lower()
+            img_path = None
+            if any(k in riesgo_norm for k in ("alto", "high")):
+                img_path = ASSETS_DIR / "RiesgoAlto.jpeg"
+            elif any(k in riesgo_norm for k in ("medio", "medium", "mod")):
+                img_path = ASSETS_DIR / "RiesgoMedio.jpeg"
+            elif any(k in riesgo_norm for k in ("bajo", "low")):
+                img_path = ASSETS_DIR / "RiesgoBajo.jpeg"
+
+            if img_path and img_path.exists():
+                _, col_img, _ = st.columns([1, 2, 1])
+                with col_img:
+                    st.image(str(img_path), width=320)
 
             registro = {
                 "step": int(step),
