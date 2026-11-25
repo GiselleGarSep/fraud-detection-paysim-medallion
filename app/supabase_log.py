@@ -1,64 +1,70 @@
 import os
-import pandas as pd
-import requests
+from typing import Any
+import httpx
+
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+SUPABASE_ANON_KEY = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
+SUPABASE_TABLE = (os.getenv("SUPABASE_TABLE") or "fraud_predictions").strip()
 
 
-def get_supabase_config() -> tuple[str, str]:
-    url = os.getenv("SUPABASE_URL", "").rstrip("/")
-    key = os.getenv("SUPABASE_ANON_KEY", "")
-    return url, key
+def supabase_configurado() -> bool:
+    """Indica si existen la URL y la clave de Supabase en el entorno."""
+    return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
 
 
-def guardar_prediccion(record: dict, timeout: float = 5.0) -> tuple[bool, str]:
-    """Inserta una fila en public.fraud_predictions_log."""
-    url, key = get_supabase_config()
-    if not url or not key:
-        return False, "Variables SUPABASE_URL y SUPABASE_ANON_KEY no configuradas."
-
-    try:
-        resp = requests.post(
-            f"{url}/rest/v1/fraud_predictions_log",
-            json=record,
-            headers={
-                "apikey": key,
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                "Prefer": "return=minimal",
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        return True, "Registro guardado en Supabase (fraud_predictions_log)."
-    except requests.RequestException as exc:
-        return False, f"No se pudo guardar en Supabase: {exc}"
+def _headers() -> dict[str, str]:
+    return {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
 
 
-def obtener_bitacora(limit: int = 20, timeout: float = 5.0) -> tuple[pd.DataFrame | None, str | None]:
-    """Consulta los últimos registros de public.fraud_predictions_log."""
-    url, key = get_supabase_config()
-    if not url or not key:
-        return None, "Configura SUPABASE_URL y SUPABASE_ANON_KEY para ver la bitácora."
+def _normalizar_filas(raw: Any) -> list[dict[str, Any]]:
+    """Convierte respuestas de Supabase/tuplas/objetos en una lista plana de dicts."""
+    if raw is None:
+        return []
+    data = getattr(raw, "data", raw)
+    if isinstance(data, tuple):
+        data = data[0] if len(data) > 0 else []
+    if not isinstance(data, list):
+        return []
 
-    try:
-        resp = requests.get(
-            f"{url}/rest/v1/fraud_predictions_log",
-            params={
-                "select": (
-                    "id,created_at,step,tx_type,amount,"
-                    "oldbalance_org,newbalance_orig,oldbalance_dest,newbalance_dest,"
-                    "is_fraud_prediction,fraud_probability,risk_level"
-                ),
-                "order": "id.desc",
-                "limit": limit,
-            },
-            headers={
-                "apikey": key,
-                "Authorization": f"Bearer {key}",
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-        return pd.DataFrame(rows), None
-    except requests.RequestException as exc:
-        return None, f"Error al consultar Supabase: {exc}"
+    filas_limpias: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        fila_limpia: dict[str, Any] = {}
+        for k, v in item.items():
+            if isinstance(v, (list, dict)):
+                fila_limpia[k] = str(v)
+            else:
+                fila_limpia[k] = v
+        filas_limpias.append(fila_limpia)
+    return filas_limpias
+
+
+def guardar_prediccion(registro: dict[str, Any]) -> list[dict[str, Any]]:
+    """Inserta una predicción en la tabla de Supabase."""
+    if not supabase_configurado():
+        raise RuntimeError("Configura SUPABASE_URL y SUPABASE_ANON_KEY para guardar en la bitácora.")
+
+    endpoint = f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+    with httpx.Client(timeout=10.0) as client:
+        response = client.post(endpoint, headers=_headers(), json=registro)
+        response.raise_for_status()
+        return _normalizar_filas(response.json())
+
+
+def obtener_bitacora(limit: int = 200) -> list[dict[str, Any]]:
+    """Consulta los registros de la bitácora en Supabase y devuelve una lista de dicts."""
+    if not supabase_configurado():
+        raise RuntimeError("Configura SUPABASE_URL y SUPABASE_ANON_KEY para ver la bitácora.")
+
+    endpoint = f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
+    params = {"select": "*", "limit": str(limit)}
+    with httpx.Client(timeout=10.0) as client:
+        response = client.get(endpoint, headers=_headers(), params=params)
+        response.raise_for_status()
+        return _normalizar_filas(response.json())
