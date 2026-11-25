@@ -50,11 +50,10 @@ A **Random Forest** classifier was trained with inverse-frequency class weightin
 
 ---
 
-## 4. System Architecture (Databricks, FastAPI/Docker, AWS & Supabase)
+## 4. System Architecture (Databricks, FastAPI/Docker & Supabase)
 
 - **Databricks:** Raw ingestion volume, Medallion Delta tables (`Bronze`, `Silver`, `Gold`), and Spark ML training/evaluation.
 - **FastAPI + Docker (`api/`):** Exposes the prediction service via a REST API (`POST /predict` and `GET /health`) with **Pydantic** input validation and automatic **OpenAPI / Swagger** documentation at `/docs`.
-- **AWS:** Hosts artifacts/storage (e.g., S3) and/or runs the containerized API service.
 - **Supabase:** Stores prediction query logs/history in PostgreSQL (`fraud_predictions_log`) for auditing and application display.
 - **Streamlit Query & Log App:** Calls the published HTTP endpoint (`POST /predict`), handles HTTP errors/timeouts/malformed responses, logs evaluated transactions to `fraud_predictions_log`, and provides a **Bitácora** tab with filters.
 
@@ -75,20 +74,24 @@ fraud-detection-project/
 └── app/
     ├── app.py
     └── supabase_log.py
+```
+---
 
-## Step 6. Running the API with Docker
+## 6. Running the API with Docker
 
 Build and run the container on port 8000:
 
+```text
 docker build -t fraud-detection-api ./api
 docker run -d -p 8000:8000 --name fraud-api fraud-detection-api
-
+```
 Swagger / OpenAPI Docs: http://localhost:8000/docs
 Health Check: GET http://localhost:8000/health
 Predict Endpoint: POST http://localhost:8000/predict
 
 Example request payload:
 
+```text
 JSON:
 {
   "step": 42,
@@ -99,15 +102,20 @@ JSON:
   "oldbalanceDest": 0.0,
   "newbalanceDest": 0.0
 }
+```
 
-## Step 7. Running Streamlit & Logging to Supabase (fraud_predictions_log)
+---
+
+## 7. Running Streamlit & Logging to Supabase (fraud_predictions_log)
 
 Export the required environment variables in your terminal session before starting Streamlit (do not commit real secrets to Git):
 
+```text
 export FRAUD_API_URL="http://localhost:8000"
 export SUPABASE_URL="[https://YOUR-PROJECT.supabase.co](https://YOUR-PROJECT.supabase.co)"
 export SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_OR_PUBLISHABLE_KEY"
 export SUPABASE_TABLE="fraud_predictions_log"
+```
 
 The Streamlit app inserts and reads records from public.fraud_predictions_log using these columns:
 
@@ -124,7 +132,11 @@ risk_level (text)
 
 Start Streamlit (adjust the path if app.py is at the repository root):
 
+```text
 streamlit run app/app.py
+```
 
 Then evaluate a transaction in the Evaluación tab, open the Bitácora tab, and click Actualizar bitácora to verify that the prediction is persisted and filterable.
+
+---
 
