@@ -1,10 +1,10 @@
 # Financial Fraud Detection Pipeline (PaySim — Medallion Architecture)
 
-An end-to-end financial fraud detection system built on the **PaySim** synthetic mobile money dataset (**6,362,620** records), structured around the **Medallion architecture** (**Bronze**, **Silver**, and **Gold**) using **Databricks** (Apache Spark & Delta Lake), a class-weighted **Random Forest** classifier, a **Dockerized FastAPI** inference service, **AWS**, **Supabase**, and a **Streamlit** query and audit-log application.
+An end-to-end financial fraud detection system built on the **PaySim** synthetic mobile money dataset (**6,362,620** records), structured around the **Medallion architecture** (**Bronze**, **Silver**, and **Gold**) using **Databricks** (Apache Spark & Delta Lake), a class-weighted **Random Forest** classifier, a **Dockerized FastAPI** inference service, **Supabase**, and a **Streamlit** query and audit-log application.
 
 ---
 
-## 1. Problem Definition & Dataset Scope
+## 1. 🎯 Problem Definition & Dataset Scope
 
 - **Dataset:** PaySim (`PS_20174392719_1491204439457_log.csv`) with **6,362,620** total transactions (exceeding the 4M-record requirement).
 - **Task Type:** Supervised **binary classification** predicting `isFraud` (`1` = fraudulent transaction, `0` = legitimate transaction).
@@ -13,22 +13,22 @@ An end-to-end financial fraud detection system built on the **PaySim** synthetic
 
 ---
 
-## 2. Medallion Architecture in Databricks
+## 2. 🥉🥈🥇 Medallion Architecture in Databricks
 
 All layers are organized under the `transacciones_banco` catalog in Unity Catalog:
 
-1. **Bronze (`transacciones_banco.Bronze.transacciones_raw`):**
+1. **🥉 Bronze (`transacciones_banco.Bronze.transacciones_raw`):**
   - Ingests raw data from `/Volumes/transacciones_banco/default/raw_data/PS_20174392719_1491204439457_log.csv` into a Delta table preserving all **6,362,620** records along with ingestion metadata (`_ingested_at`, `_source_file`).
-2. **Silver (`transacciones_banco.Silver.transacciones_limpias`):**
+2. **🥈 Silver (`transacciones_banco.Silver.transacciones_limpias`):**
   - Checks null values, removes exact duplicates/critical nulls, and enforces explicit data types (`int`, `double`, `string`).
   - Detects transaction amount anomalies via the **Interquartile Range (IQR)** rule (`is_amount_outlier_iqr`) rather than blindly dropping extreme amounts.
   - Engineers balance and amount features (`delta_orig`, `delta_dest`, `error_balance_orig`, `error_balance_dest`, `log_amount`), encodes transaction `type` (`type_idx` and indicator columns), and applies **Z-score** normalization (`log_amount_zscore`, `err_balance_orig_zscore`).
-3. **Gold (`transacciones_banco.Gold.features_fraude`):**
+3. **🥇 Gold (`transacciones_banco.Gold.features_fraude`):**
   - Stores curated, model-ready features and target labels (`isFraud`) in a Delta table for training and analytical queries.
 
 ---
 
-## 3. Model Training & Evaluation Results
+## 3. 🤖 Model Training & Evaluation Results
 
 A **Random Forest** classifier was trained with inverse-frequency class weighting (`class_weight`) to account for fraud scarcity on an 80/20 train/test split (`seed=42`).
 
@@ -50,7 +50,7 @@ A **Random Forest** classifier was trained with inverse-frequency class weightin
 
 ---
 
-## 4. System Architecture (Databricks, FastAPI/Docker & Supabase)
+## 4. 🏗️ System Architecture (Databricks, FastAPI/Docker & Supabase)
 
 - **Databricks:** Raw ingestion volume, Medallion Delta tables (`Bronze`, `Silver`, `Gold`), and Spark ML training/evaluation.
 - **FastAPI + Docker (`api/`):** Exposes the prediction service via a REST API (`POST /predict` and `GET /health`) with **Pydantic** input validation and automatic **OpenAPI / Swagger** documentation at `/docs`.
@@ -59,7 +59,7 @@ A **Random Forest** classifier was trained with inverse-frequency class weightin
 
 ---
 
-## 5. Repository Structure
+## 5. 📁 Repository Structure
 
 ```text
 fraud-detection-project/
@@ -77,22 +77,21 @@ fraud-detection-project/
 ```
 ---
 
-## 6. Running the API with Docker
+## 6. 🐳 Running the API with Docker
 
 Build and run the container on port 8000:
 
-```text
+```bash
 docker build -t fraud-detection-api ./api
 docker run -d -p 8000:8000 --name fraud-api fraud-detection-api
 ```
-Swagger / OpenAPI Docs: http://localhost:8000/docs
-Health Check: GET http://localhost:8000/health
-Predict Endpoint: POST http://localhost:8000/predict
+- 📄 Swagger / OpenAPI Docs: http://localhost:8000/docs
+- ❤️ Health Check: GET http://localhost:8000/health
+- 🤖 Predict Endpoint: POST http://localhost:8000/predict
 
 Example request payload:
 
-```text
-JSON:
+```json
 {
   "step": 42,
   "type": "TRANSFER",
@@ -106,11 +105,11 @@ JSON:
 
 ---
 
-## 7. Running Streamlit & Logging to Supabase (fraud_predictions_log)
+## 7. 📊 Running Streamlit & Logging to Supabase (fraud_predictions_log)
 
-Export the required environment variables in your terminal session before starting Streamlit (do not commit real secrets to Git):
+🔑 Export the required environment variables in your terminal session before starting Streamlit (do not commit real secrets to Git):
 
-```text
+```bash
 export FRAUD_API_URL="http://localhost:8000"
 export SUPABASE_URL="[https://YOUR-PROJECT.supabase.co](https://YOUR-PROJECT.supabase.co)"
 export SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_OR_PUBLISHABLE_KEY"
@@ -119,24 +118,24 @@ export SUPABASE_TABLE="fraud_predictions_log"
 
 The Streamlit app inserts and reads records from public.fraud_predictions_log using these columns:
 
-step (int)
-tx_type (text)
-amount (float)
-oldbalance_org (float)
-newbalance_orig (float)
-oldbalance_dest (float)
-newbalance_dest (float)
-is_fraud_prediction (int)
-fraud_probability (float)
-risk_level (text)
+- step (int)
+- tx_type (text)
+- amount (float)
+- oldbalance_org (float)
+- newbalance_orig (float)
+- oldbalance_dest (float)
+- newbalance_dest (float)
+- is_fraud_prediction (int)
+- fraud_probability (float)
+- risk_level (text)
 
-Start Streamlit (adjust the path if app.py is at the repository root):
+🚀 Start Streamlit (adjust the path if app.py is at the repository root):
 
-```text
+```bash
 streamlit run app/app.py
 ```
 
-Then evaluate a transaction in the Evaluación tab, open the Bitácora tab, and click Actualizar bitácora to verify that the prediction is persisted and filterable.
+✅ Then evaluate a transaction in the Evaluación tab, open the Bitácora tab, and click Actualizar bitácora to verify that the prediction is persisted and filterable.
 
 ---
 
