@@ -4,6 +4,13 @@ An end-to-end financial fraud detection system built on the **PaySim** synthetic
 
 ---
 
+## 💻 Code Author
+
+- NAME: Giselle Garcia Sepulveda
+- ID: 0151990
+
+---
+
 ## 1. 🎯 Problem Definition & Dataset Scope
 
 - **Dataset:** PaySim (`PS_20174392719_1491204439457_log.csv`) with **6,362,620** total transactions (exceeding the 4M-record requirement).
