@@ -25,13 +25,13 @@ An end-to-end financial fraud detection system built on the **PaySim** synthetic
 All layers are organized under the `transacciones_banco` catalog in Unity Catalog:
 
 1. **🥉 Bronze (`transacciones_banco.Bronze.transacciones_raw`):**
-  - Ingests raw data from `/Volumes/transacciones_banco/default/raw_data/PS_20174392719_1491204439457_log.csv` into a Delta table preserving all **6,362,620** records along with ingestion metadata (`_ingested_at`, `_source_file`).
+   - Ingests raw data from `/Volumes/transacciones_banco/default/raw_data/PS_20174392719_1491204439457_log.csv` into a Delta table preserving all **6,362,620** records along with ingestion metadata (`_ingested_at`, `_source_file`).
 2. **🥈 Silver (`transacciones_banco.Silver.transacciones_limpias`):**
-  - Checks null values, removes exact duplicates/critical nulls, and enforces explicit data types (`int`, `double`, `string`).
-  - Detects transaction amount anomalies via the **Interquartile Range (IQR)** rule (`is_amount_outlier_iqr`) rather than blindly dropping extreme amounts.
-  - Engineers balance and amount features (`delta_orig`, `delta_dest`, `error_balance_orig`, `error_balance_dest`, `log_amount`), encodes transaction `type` (`type_idx` and indicator columns), and applies **Z-score** normalization (`log_amount_zscore`, `err_balance_orig_zscore`).
+   - Checks null values, removes exact duplicates/critical nulls, and enforces explicit data types (`int`, `double`, `string`).
+   - Detects transaction amount anomalies via the **Interquartile Range (IQR)** rule (`is_amount_outlier_iqr`) rather than blindly dropping extreme amounts.
+   - Engineers balance and amount features (`delta_orig`, `delta_dest`, `error_balance_orig`, `error_balance_dest`, `log_amount`), encodes transaction `type` (`type_idx` and indicator columns), and applies **Z-score** normalization (`log_amount_zscore`, `err_balance_orig_zscore`).
 3. **🥇 Gold (`transacciones_banco.Gold.features_fraude`):**
-  - Stores curated, model-ready features and target labels (`isFraud`) in a Delta table for training and analytical queries.
+   - Stores curated, model-ready features and target labels (`isFraud`) in a Delta table for training and analytical queries.
 
 ---
 
@@ -61,8 +61,11 @@ A **Random Forest** classifier was trained with inverse-frequency class weightin
 
 - **Databricks:** Raw ingestion volume, Medallion Delta tables (`Bronze`, `Silver`, `Gold`), and Spark ML training/evaluation.
 - **FastAPI + Docker (`api/`):** Exposes the prediction service via a REST API (`POST /predict` and `GET /health`) with **Pydantic** input validation and automatic **OpenAPI / Swagger** documentation at `/docs`.
-- **Supabase:** Stores prediction query logs/history in PostgreSQL (`fraud_predictions_log`) for auditing and application display.
-- **Streamlit Query & Log App:** Calls the published HTTP endpoint (`POST /predict`), handles HTTP errors/timeouts/malformed responses, logs evaluated transactions to `fraud_predictions_log`, and provides a **Bitácora** tab with filters.
+- **Supabase:** Persists prediction audit logs in PostgreSQL (`fraud_predictions`) including risk classification, model version, and evaluation reasons.
+- **Streamlit Query & Log App (`app/app.py`):**
+  - Displays live API health status (`GET /health`) in the sidebar and normalizes the base URL for `POST /predict`.
+  - **Evaluación tab:** Provides randomized scenario presets (*Pago normal*, *Vaciado total + TRANSFER*, *Descuadre saldo origen*, *Monto muy alto*), base reset, fraud probability progress bar, model version, evaluation reasons, risk visual asset, and a faceted Altair balance chart (`Origen` followed by `Destino`) with an `amount` reference line.
+  - **Bitácora tab:** Filters by transaction type, normalized risk level (`BAJO`, `MEDIO`, `ALTO`, `DESCONOCIDO`), and amount range; shows summary KPIs, risk distribution and amount-vs-probability charts with a fixed risk color palette, an evaluations-by-`step` chart, a row-level `reasons` inspector, and CSV export.
 
 ---
 
@@ -80,8 +83,12 @@ fraud-detection-project/
 │   └── Dockerfile
 └── app/
     ├── app.py
-    └── supabase_log.py
-```
+    ├── supabase_log.py
+    ├── logo_tarjeta.svg
+    └── assets/
+        ├── RiesgoAlto.jpeg
+        ├── RiesgoMedio.jpeg
+        └── RiesgoBajo.jpeg
 ---
 
 ## 6. 🐳 Running the API with Docker
@@ -118,9 +125,9 @@ Example request payload:
 
 ```bash
 export FRAUD_API_URL="http://localhost:8000"
+export REQUEST_TIMEOUT="10.0"
 export SUPABASE_URL="[https://YOUR-PROJECT.supabase.co](https://YOUR-PROJECT.supabase.co)"
 export SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_OR_PUBLISHABLE_KEY"
-export SUPABASE_TABLE="fraud_predictions_log"
 ```
 
 The Streamlit app inserts and reads records from public.fraud_predictions_log using these columns:
@@ -135,6 +142,8 @@ The Streamlit app inserts and reads records from public.fraud_predictions_log us
 - is_fraud_prediction (int)
 - fraud_probability (float)
 - risk_level (text)
+- model_version (text)
+- reasons (list/text)
 
 🚀 Start Streamlit (adjust the path if app.py is at the repository root):
 
@@ -142,7 +151,8 @@ The Streamlit app inserts and reads records from public.fraud_predictions_log us
 streamlit run app/app.py
 ```
 
-✅ Then evaluate a transaction in the Evaluación tab, open the Bitácora tab, and click Actualizar bitácora to verify that the prediction is persisted and filterable.
+✅ Evaluate a transaction in the Evaluación tab, open the Bitácora tab, and click Actualizar bitácora to verify that the prediction is persisted, filterable, and inspectable.
+
 
 ---
 
