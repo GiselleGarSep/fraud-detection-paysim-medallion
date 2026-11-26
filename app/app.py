@@ -42,6 +42,38 @@ NOMBRES_CASOS = [
     "Monto muy alto",
 ]
 
+NIVELES_RIESGO_ORDEN = ["BAJO", "MEDIO", "ALTO", "DESCONOCIDO"]
+COLORES_RIESGO = ["#2e7d32", "#ed6c02", "#c62828", "#607d8b"]
+
+
+def normalizar_etiqueta_riesgo(risk: object) -> str:
+    """Agrupa variantes de texto de riesgo en una etiqueta uniforme."""
+    texto = str(risk or "").strip().lower()
+    if any(k in texto for k in ("alto", "high")):
+        return "ALTO"
+    if any(k in texto for k in ("medio", "medium", "mod")):
+        return "MEDIO"
+    if any(k in texto for k in ("bajo", "low")):
+        return "BAJO"
+    return str(risk).strip().upper() if str(risk or "").strip() else "DESCONOCIDO"
+
+
+def escala_color_riesgo(
+    campo: str, titulo: str = "Riesgo", mostrar_leyenda: bool = True
+) -> alt.Color:
+    """Devuelve una codificación de color uniforme para los niveles de riesgo."""
+    if mostrar_leyenda:
+        return alt.Color(
+            campo,
+            title=titulo,
+            scale=alt.Scale(domain=NIVELES_RIESGO_ORDEN, range=COLORES_RIESGO),
+        )
+    return alt.Color(
+        campo,
+        legend=None,
+        scale=alt.Scale(domain=NIVELES_RIESGO_ORDEN, range=COLORES_RIESGO),
+    )
+
 
 def generar_caso_aleatorio(nombre_caso: str) -> dict:
     """Genera valores aleatorios coherentes según el escenario de prueba elegido."""
@@ -125,13 +157,13 @@ def aplicar_preset(valores: dict) -> None:
 
 def obtener_imagen_riesgo(risk: object) -> Path | None:
     """Devuelve la ruta de la imagen según el nivel de riesgo si existe en ASSETS_DIR."""
-    riesgo_norm = str(risk or "").strip().lower()
+    etiqueta = normalizar_etiqueta_riesgo(risk)
     candidata = None
-    if any(k in riesgo_norm for k in ("alto", "high")):
+    if etiqueta == "ALTO":
         candidata = ASSETS_DIR / "RiesgoAlto.jpeg"
-    elif any(k in riesgo_norm for k in ("medio", "medium", "mod")):
+    elif etiqueta == "MEDIO":
         candidata = ASSETS_DIR / "RiesgoMedio.jpeg"
-    elif any(k in riesgo_norm for k in ("bajo", "low")):
+    elif etiqueta == "BAJO":
         candidata = ASSETS_DIR / "RiesgoBajo.jpeg"
 
     if candidata and candidata.exists():
@@ -145,6 +177,20 @@ def normalizar_base_url(raw_url: str) -> str:
     if cleaned.endswith("/predict"):
         cleaned = cleaned[: -len("/predict")].rstrip("/")
     return cleaned or "http://localhost:8000"
+
+
+@st.cache_data(ttl=10)
+def comprobar_salud_api(base_url: str) -> tuple[bool, str]:
+    """Consulta GET /health de la API con caché corta para la barra lateral."""
+    url = f"{normalizar_base_url(base_url)}/health"
+    try:
+        with httpx.Client(timeout=2.5) as client:
+            resp = client.get(url)
+        if resp.status_code == 200:
+            return True, "API activa (/health OK)"
+        return False, f"API respondió con estado {resp.status_code}"
+    except Exception:
+        return False, "API sin respuesta"
 
 
 def query_fraud_endpoint(base_url: str, payload: dict, timeout_s: float = 10.0) -> dict:
@@ -198,6 +244,9 @@ def construir_dataframe_bitacora(registros: object) -> pd.DataFrame:
         if num_col in df.columns:
             df[num_col] = pd.to_numeric(df[num_col], errors="coerce")
 
+    if "risk_level" in df.columns:
+        df["risk_level"] = df["risk_level"].apply(normalizar_etiqueta_riesgo)
+
     prioridad = [
         "tx_type",
         "risk_level",
@@ -219,13 +268,33 @@ def renderizar_comparativa_saldos(
     newbalance_dest: float,
     amount: float,
 ) -> None:
-    """Renderiza una gráfica comparativa de saldos origen y destino para la transacción."""
+    """Renderiza una gráfica comparativa de saldos con referencia del monto."""
     df_saldos = pd.DataFrame(
         [
-            {"cuenta": "Origen", "momento": "Anterior (old)", "saldo": float(oldbalance_org)},
-            {"cuenta": "Origen", "momento": "Nuevo (new)", "saldo": float(newbalance_orig)},
-            {"cuenta": "Destino", "momento": "Anterior (old)", "saldo": float(oldbalance_dest)},
-            {"cuenta": "Destino", "momento": "Nuevo (new)", "saldo": float(newbalance_dest)},
+            {
+                "cuenta": "Origen",
+                "momento": "Anterior (old)",
+                "saldo": float(oldbalance_org),
+                "monto_ref": float(amount),
+            },
+            {
+                "cuenta": "Origen",
+                "momento": "Nuevo (new)",
+                "saldo": float(newbalance_orig),
+                "monto_ref": float(amount),
+            },
+            {
+                "cuenta": "Destino",
+                "momento": "Anterior (old)",
+                "saldo": float(oldbalance_dest),
+                "monto_ref": float(amount),
+            },
+            {
+                "cuenta": "Destino",
+                "momento": "Nuevo (new)",
+                "saldo": float(newbalance_dest),
+                "monto_ref": float(amount),
+            },
         ]
     )
 
@@ -236,31 +305,45 @@ def renderizar_comparativa_saldos(
         f"Variación destino (nuevo - anterior): `${delta_dest:,.2f}`"
     )
 
-    chart = (
-        alt.Chart(df_saldos)
+    barras = (
+        alt.Chart()
         .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
         .encode(
             x=alt.X("momento:N", title=None, sort=["Anterior (old)", "Nuevo (new)"]),
-            y=alt.Y("saldo:Q", title="Saldo ($)"),
+            y=alt.Y("saldo:Q", title="Saldo / Monto ($)"),
             color=alt.Color(
                 "momento:N",
                 title="Momento",
                 sort=["Anterior (old)", "Nuevo (new)"],
             ),
-            column=alt.Column("cuenta:N", title="Cuenta"),
             tooltip=[
                 alt.Tooltip("cuenta:N", title="Cuenta"),
                 alt.Tooltip("momento:N", title="Momento"),
                 alt.Tooltip("saldo:Q", title="Saldo", format=",.2f"),
+                alt.Tooltip("monto_ref:Q", title="Monto", format=",.2f"),
             ],
         )
-        .properties(width=240, height=230)
+        .properties(width=230, height=230)
     )
-    st.altair_chart(chart, use_container_width=False)
+
+    linea_monto = (
+        alt.Chart()
+        .mark_rule(strokeDash=[5, 4], strokeWidth=2, color="#d32f2f")
+        .encode(
+            y=alt.Y("monto_ref:Q"),
+            tooltip=[alt.Tooltip("monto_ref:Q", title="Monto", format=",.2f")],
+        )
+    )
+
+    chart_facetado = (barras + linea_monto).facet(
+        data=df_saldos,
+        column=alt.Column("cuenta:N", title="Cuenta", sort=["Origen", "Destino"]),
+    )
+    st.altair_chart(chart_facetado, use_container_width=False)
 
 
 def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
-    """Renderiza dos gráficas interactivas clave sobre el DataFrame ya filtrado."""
+    """Renderiza gráficas interactivas de riesgo, dispersión y evolución por step."""
     if df.empty:
         return
 
@@ -270,7 +353,7 @@ def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
         st.markdown("#### Transacciones por nivel de riesgo")
         if "risk_level" in df.columns:
             df_riesgo = (
-                df.assign(risk_level=df["risk_level"].fillna("UNKNOWN").astype(str))
+                df.assign(risk_level=df["risk_level"].apply(normalizar_etiqueta_riesgo))
                 .groupby("risk_level", as_index=False)
                 .size()
                 .rename(columns={"size": "cantidad"})
@@ -281,13 +364,13 @@ def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
                 .encode(
                     x=alt.X("risk_level:N", title="Nivel de riesgo", sort="-y"),
                     y=alt.Y("cantidad:Q", title="Cantidad"),
-                    color=alt.Color("risk_level:N", legend=None),
+                    color=escala_color_riesgo("risk_level:N", mostrar_leyenda=False),
                     tooltip=[
                         alt.Tooltip("risk_level:N", title="Nivel de riesgo"),
                         alt.Tooltip("cantidad:Q", title="Transacciones"),
                     ],
                 )
-                .properties(height=280)
+                .properties(height=270)
             )
             st.altair_chart(chart_riesgo, use_container_width=True)
         else:
@@ -299,9 +382,9 @@ def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
             df_scatter = df.dropna(subset=["amount", "fraud_probability"]).copy()
             if not df_scatter.empty:
                 df_scatter["risk_label"] = (
-                    df_scatter["risk_level"].fillna("UNKNOWN").astype(str)
+                    df_scatter["risk_level"].apply(normalizar_etiqueta_riesgo)
                     if "risk_level" in df_scatter.columns
-                    else "UNKNOWN"
+                    else "DESCONOCIDO"
                 )
                 df_scatter["tx_label"] = (
                     df_scatter["tx_type"].fillna("N/A").astype(str)
@@ -310,7 +393,7 @@ def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
                 )
                 chart_scatter = (
                     alt.Chart(df_scatter)
-                    .mark_circle(size=85, opacity=0.8)
+                    .mark_circle(size=85, opacity=0.85)
                     .encode(
                         x=alt.X("amount:Q", title="Monto ($)"),
                         y=alt.Y(
@@ -318,7 +401,9 @@ def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
                             title="Probabilidad de fraude",
                             scale=alt.Scale(domain=[0, 1]),
                         ),
-                        color=alt.Color("risk_label:N", title="Riesgo"),
+                        color=escala_color_riesgo(
+                            "risk_label:N", titulo="Riesgo", mostrar_leyenda=True
+                        ),
                         tooltip=[
                             alt.Tooltip("tx_label:N", title="Tipo"),
                             alt.Tooltip("risk_label:N", title="Riesgo"),
@@ -326,7 +411,7 @@ def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
                             alt.Tooltip("fraud_probability:Q", title="Probabilidad", format=".2%"),
                         ],
                     )
-                    .properties(height=280)
+                    .properties(height=270)
                     .interactive()
                 )
                 st.altair_chart(chart_scatter, use_container_width=True)
@@ -334,6 +419,80 @@ def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
                 st.info("No hay datos numéricos válidos en monto y probabilidad.")
         else:
             st.info("Faltan columnas `amount` o `fraud_probability` para la dispersión.")
+
+    if "step" in df.columns:
+        df_step = df.dropna(subset=["step"]).copy()
+        if not df_step.empty:
+            st.markdown("#### Evaluaciones por step (hora / paso)")
+            df_step["step_num"] = pd.to_numeric(df_step["step"], errors="coerce")
+            df_step = df_step.dropna(subset=["step_num"])
+            if not df_step.empty:
+                df_step["step_int"] = df_step["step_num"].astype(int)
+                agrupado_step = (
+                    df_step.groupby("step_int", as_index=False)
+                    .agg(
+                        transacciones=("step_int", "count"),
+                        prob_promedio=("fraud_probability", "mean")
+                        if "fraud_probability" in df_step.columns
+                        else ("step_int", "count"),
+                    )
+                    .sort_values("step_int")
+                )
+                chart_step = (
+                    alt.Chart(agrupado_step)
+                    .mark_line(point=True, color="#1565c0")
+                    .encode(
+                        x=alt.X("step_int:Q", title="Step"),
+                        y=alt.Y("transacciones:Q", title="Evaluaciones"),
+                        tooltip=[
+                            alt.Tooltip("step_int:Q", title="Step"),
+                            alt.Tooltip("transacciones:Q", title="Evaluaciones"),
+                            alt.Tooltip("prob_promedio:Q", title="Prob. promedio", format=".2%"),
+                        ],
+                    )
+                    .properties(height=210)
+                    .interactive()
+                )
+                st.altair_chart(chart_step, use_container_width=True)
+
+
+def renderizar_inspector_reasons(df: pd.DataFrame) -> None:
+    """Muestra los motivos de evaluación de forma legible para el registro seleccionado."""
+    if df.empty or "reasons" not in df.columns:
+        return
+
+    st.markdown("#### Detalle de motivos por registro")
+    opciones = list(range(len(df)))
+
+    def _etiqueta_fila(idx: int) -> str:
+        fila = df.iloc[idx]
+        tipo = fila.get("tx_type", "N/A")
+        riesgo = fila.get("risk_level", "N/A")
+        monto = fila.get("amount", 0.0)
+        try:
+            monto_str = f"${float(monto):,.2f}"
+        except (TypeError, ValueError):
+            monto_str = str(monto)
+        return f"#{idx + 1} · {tipo} · Riesgo {riesgo} · {monto_str}"
+
+    idx_sel = st.selectbox(
+        "Selecciona una fila para ver sus motivos en detalle",
+        options=opciones,
+        format_func=_etiqueta_fila,
+        key="selector_reasons_bitacora",
+    )
+    motivo_raw = df.iloc[idx_sel].get("reasons")
+    if (
+        motivo_raw is None
+        or (isinstance(motivo_raw, float) and pd.isna(motivo_raw))
+        or str(motivo_raw).strip() in ("", "[]")
+    ):
+        st.caption("Sin motivos registrados para esta transacción.")
+    else:
+        for parte in str(motivo_raw).split("|"):
+            limpio = parte.strip().strip("[]").strip("'\"")
+            if limpio:
+                st.markdown(f"- {limpio}")
 
 
 inicializar_estado_formulario()
@@ -356,6 +515,11 @@ with st.sidebar:
         help="Ejemplo: http://localhost:8000 (la app agrega /predict automáticamente)",
     )
     api_base_url = normalizar_base_url(api_url_input)
+    api_ok, api_msg = comprobar_salud_api(api_base_url)
+    if api_ok:
+        st.success(api_msg)
+    else:
+        st.error(api_msg)
     st.caption(f"Endpoint activo: `{api_base_url}/predict`")
 
 # --- Pestañas principales ---
@@ -424,20 +588,24 @@ with tab_eval:
             data = resultado["data"]
             pred = data.get("is_fraud_prediction", 0)
             prob = data.get("fraud_probability", 0.0)
-            risk = data.get("risk_level", "UNKNOWN")
+            risk = normalizar_etiqueta_riesgo(data.get("risk_level", "DESCONOCIDO"))
             model_version = str(data.get("model_version") or "unknown")
             raw_reasons = data.get("reasons")
             reasons = [str(r) for r in raw_reasons] if isinstance(raw_reasons, list) else []
 
+            prob_float = float(prob if prob is not None else 0.0)
+            prob_norm = prob_float if prob_float <= 1.0 else min(prob_float / 100.0, 1.0)
+            prob_norm = max(0.0, min(prob_norm, 1.0))
+
             m1, m2, m3 = st.columns(3)
             m1.metric("Predicción", "POSIBLE FRAUDE" if pred == 1 else "TRANSACCIÓN NORMAL")
-            m2.metric(
-                "Probabilidad de fraude",
-                f"{float(prob):.2%}" if float(prob) <= 1 else f"{float(prob):.4f}",
-            )
-            m3.metric("Nivel de riesgo", str(risk))
+            m2.metric("Probabilidad de fraude", f"{prob_norm:.2%}")
+            m3.metric("Nivel de riesgo", risk)
 
+            st.progress(prob_norm, text=f"Nivel de probabilidad estimado: {prob_norm:.1%}")
             st.caption(f"Versión del modelo: `{model_version}`")
+
+            st.divider()
 
             # --- Motivos de la evaluación e imagen de riesgo lado a lado ---
             col_motivos, col_img = st.columns([2, 1], vertical_alignment="top")
@@ -455,6 +623,8 @@ with tab_eval:
                     st.image(str(img_path), caption=f"Riesgo: {risk}", width=260)
                 else:
                     st.caption(f"Sin imagen para nivel de riesgo: `{risk}`")
+
+            st.divider()
 
             st.markdown("### Comparativa de saldos (origen vs. destino)")
             renderizar_comparativa_saldos(
@@ -474,8 +644,8 @@ with tab_eval:
                 "oldbalance_dest": float(oldbalance_dest),
                 "newbalance_dest": float(newbalance_dest),
                 "is_fraud_prediction": int(pred if pred is not None else 0),
-                "fraud_probability": float(prob if prob is not None else 0.0),
-                "risk_level": str(risk if risk is not None else "UNKNOWN"),
+                "fraud_probability": float(prob_norm),
+                "risk_level": risk,
                 "model_version": model_version,
                 "reasons": reasons,
             }
@@ -545,23 +715,29 @@ with tab_bitacora:
                     (df_filtrado["amount"] >= rango_amt[0]) & (df_filtrado["amount"] <= rango_amt[1])
                 ]
 
+            st.divider()
+
             # --- Métricas rápidas de la bitácora filtrada ---
             k1, k2, k3 = st.columns(3)
             total_reg = len(df_filtrado)
             k1.metric("Transacciones evaluadas", total_reg)
 
             if "risk_level" in df_filtrado.columns:
-                alto_riesgo = df_filtrado["risk_level"].astype(str).str.lower().str.contains("alto|high").sum()
+                alto_riesgo = int((df_filtrado["risk_level"] == "ALTO").sum())
             else:
                 alto_riesgo = 0
-            k2.metric("Riesgo alto", int(alto_riesgo))
+            k2.metric("Riesgo alto", alto_riesgo)
 
             monto_total = float(df_filtrado["amount"].sum()) if "amount" in df_filtrado.columns else 0.0
             k3.metric("Monto acumulado", f"${monto_total:,.2f}")
 
             renderizar_graficas_bitacora(df_filtrado)
 
+            st.divider()
+
             st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+
+            renderizar_inspector_reasons(df_filtrado)
 
             csv_bytes = df_filtrado.to_csv(index=False).encode("utf-8")
             st.download_button(
