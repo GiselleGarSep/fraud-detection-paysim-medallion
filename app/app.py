@@ -78,6 +78,22 @@ def aplicar_preset(valores: dict) -> None:
         st.session_state[campo] = valor
 
 
+def obtener_imagen_riesgo(risk: object) -> Path | None:
+    """Devuelve la ruta de la imagen según el nivel de riesgo si existe en ASSETS_DIR."""
+    riesgo_norm = str(risk or "").strip().lower()
+    candidata = None
+    if any(k in riesgo_norm for k in ("alto", "high")):
+        candidata = ASSETS_DIR / "RiesgoAlto.jpeg"
+    elif any(k in riesgo_norm for k in ("medio", "medium", "mod")):
+        candidata = ASSETS_DIR / "RiesgoMedio.jpeg"
+    elif any(k in riesgo_norm for k in ("bajo", "low")):
+        candidata = ASSETS_DIR / "RiesgoBajo.jpeg"
+
+    if candidata and candidata.exists():
+        return candidata
+    return None
+
+
 def normalizar_base_url(raw_url: str) -> str:
     """Normaliza la URL base para evitar que termine en /predict o tenga barras extra."""
     cleaned = (raw_url or "http://localhost:8000").strip().rstrip("/")
@@ -149,6 +165,53 @@ def construir_dataframe_bitacora(registros: object) -> pd.DataFrame:
     cols_prioritarias = [c for c in prioridad if c in df.columns]
     cols_restantes = [c for c in df.columns if c not in cols_prioritarias]
     return df[cols_prioritarias + cols_restantes]
+
+
+def renderizar_comparativa_saldos(
+    oldbalance_org: float,
+    newbalance_orig: float,
+    oldbalance_dest: float,
+    newbalance_dest: float,
+    amount: float,
+) -> None:
+    """Renderiza una gráfica comparativa de saldos origen y destino para la transacción."""
+    df_saldos = pd.DataFrame(
+        [
+            {"cuenta": "Origen", "momento": "Anterior (old)", "saldo": float(oldbalance_org)},
+            {"cuenta": "Origen", "momento": "Nuevo (new)", "saldo": float(newbalance_orig)},
+            {"cuenta": "Destino", "momento": "Anterior (old)", "saldo": float(oldbalance_dest)},
+            {"cuenta": "Destino", "momento": "Nuevo (new)", "saldo": float(newbalance_dest)},
+        ]
+    )
+
+    delta_orig = float(oldbalance_org) - float(newbalance_orig)
+    delta_dest = float(newbalance_dest) - float(oldbalance_dest)
+    st.caption(
+        f"Monto: `${amount:,.2f}` · Variación origen (anterior - nuevo): `${delta_orig:,.2f}` · "
+        f"Variación destino (nuevo - anterior): `${delta_dest:,.2f}`"
+    )
+
+    chart = (
+        alt.Chart(df_saldos)
+        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+        .encode(
+            x=alt.X("momento:N", title=None, sort=["Anterior (old)", "Nuevo (new)"]),
+            y=alt.Y("saldo:Q", title="Saldo ($)"),
+            color=alt.Color(
+                "momento:N",
+                title="Momento",
+                sort=["Anterior (old)", "Nuevo (new)"],
+            ),
+            column=alt.Column("cuenta:N", title="Cuenta"),
+            tooltip=[
+                alt.Tooltip("cuenta:N", title="Cuenta"),
+                alt.Tooltip("momento:N", title="Momento"),
+                alt.Tooltip("saldo:Q", title="Saldo", format=",.2f"),
+            ],
+        )
+        .properties(width=240, height=230)
+    )
+    st.altair_chart(chart, use_container_width=False)
 
 
 def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
@@ -331,27 +394,31 @@ with tab_eval:
 
             st.caption(f"Versión del modelo: `{model_version}`")
 
-            st.markdown("### Motivos de la evaluación")
-            if reasons:
-                for reason in reasons:
-                    st.markdown(f"- {reason}")
-            else:
-                st.info("No se registraron motivos adicionales para esta transacción.")
+            # --- Motivos de la evaluación e imagen de riesgo lado a lado ---
+            col_motivos, col_img = st.columns([2, 1], vertical_alignment="top")
+            with col_motivos:
+                st.markdown("### Motivos de la evaluación")
+                if reasons:
+                    for reason in reasons:
+                        st.markdown(f"- {reason}")
+                else:
+                    st.info("No se registraron motivos adicionales para esta transacción.")
 
-            # --- Tarjeta visual según el nivel de riesgo ---
-            riesgo_norm = str(risk).strip().lower()
-            img_path = None
-            if any(k in riesgo_norm for k in ("alto", "high")):
-                img_path = ASSETS_DIR / "RiesgoAlto.jpeg"
-            elif any(k in riesgo_norm for k in ("medio", "medium", "mod")):
-                img_path = ASSETS_DIR / "RiesgoMedio.jpeg"
-            elif any(k in riesgo_norm for k in ("bajo", "low")):
-                img_path = ASSETS_DIR / "RiesgoBajo.jpeg"
+            img_path = obtener_imagen_riesgo(risk)
+            with col_img:
+                if img_path:
+                    st.image(str(img_path), caption=f"Riesgo: {risk}", width=260)
+                else:
+                    st.caption(f"Sin imagen para nivel de riesgo: `{risk}`")
 
-            if img_path and img_path.exists():
-                _, col_img, _ = st.columns([1, 2, 1])
-                with col_img:
-                    st.image(str(img_path), width=320)
+            st.markdown("### Comparativa de saldos (origen vs. destino)")
+            renderizar_comparativa_saldos(
+                oldbalance_org=float(oldbalance_org),
+                newbalance_orig=float(newbalance_orig),
+                oldbalance_dest=float(oldbalance_dest),
+                newbalance_dest=float(newbalance_dest),
+                amount=float(amount),
+            )
 
             registro = {
                 "step": int(step),
