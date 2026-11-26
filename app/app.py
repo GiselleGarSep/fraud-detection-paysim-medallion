@@ -23,6 +23,59 @@ st.set_page_config(
 DEFAULT_API_URL = os.getenv("FRAUD_API_URL") or os.getenv("API_BASE_URL", "http://localhost:8000")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "10.0"))
 
+VALORES_BASE = {
+    "step": 1,
+    "tx_type": "TRANSFER",
+    "amount": 1000.0,
+    "oldbalance_org": 5000.0,
+    "newbalance_orig": 4000.0,
+    "oldbalance_dest": 0.0,
+    "newbalance_dest": 1000.0,
+}
+
+CASOS_PRUEBA = {
+    "Pago normal": {
+        "step": 12,
+        "tx_type": "PAYMENT",
+        "amount": 1500.0,
+        "oldbalance_org": 10000.0,
+        "newbalance_orig": 8500.0,
+        "oldbalance_dest": 0.0,
+        "newbalance_dest": 0.0,
+    },
+    "Vaciado total + TRANSFER": {
+        "step": 48,
+        "tx_type": "TRANSFER",
+        "amount": 250000.0,
+        "oldbalance_org": 250000.0,
+        "newbalance_orig": 0.0,
+        "oldbalance_dest": 0.0,
+        "newbalance_dest": 0.0,
+    },
+    "Descuadre saldo origen": {
+        "step": 96,
+        "tx_type": "CASH_OUT",
+        "amount": 50000.0,
+        "oldbalance_org": 80000.0,
+        "newbalance_orig": 50000.0,
+        "oldbalance_dest": 12000.0,
+        "newbalance_dest": 62000.0,
+    },
+}
+
+
+def inicializar_estado_formulario() -> None:
+    """Inicializa las claves del formulario en session_state una sola vez."""
+    for campo, valor in VALORES_BASE.items():
+        if campo not in st.session_state:
+            st.session_state[campo] = valor
+
+
+def aplicar_preset(valores: dict) -> None:
+    """Actualiza las claves del formulario en session_state con el caso seleccionado."""
+    for campo, valor in valores.items():
+        st.session_state[campo] = valor
+
 
 def normalizar_base_url(raw_url: str) -> str:
     """Normaliza la URL base para evitar que termine en /predict o tenga barras extra."""
@@ -93,6 +146,8 @@ def construir_dataframe_bitacora(registros: object) -> pd.DataFrame:
     return df[cols_prioritarias + cols_restantes]
 
 
+inicializar_estado_formulario()
+
 # --- Encabezado con branding ---
 col_logo, col_title = st.columns([1, 10], vertical_alignment="center")
 with col_logo:
@@ -118,22 +173,44 @@ tab_eval, tab_bitacora = st.tabs(["🔍 Evaluación", "📋 Bitácora"])
 
 with tab_eval:
     st.subheader("Evaluar transacción")
+    st.caption("Casos de prueba rápidos (rellenan los campos antes de evaluar):")
+
+    preset_cols = st.columns(len(CASOS_PRUEBA) + 1)
+    for idx, (nombre_caso, valores_caso) in enumerate(CASOS_PRUEBA.items()):
+        with preset_cols[idx]:
+            if st.button(nombre_caso, key=f"btn_preset_{idx}", use_container_width=True):
+                aplicar_preset(valores_caso)
+                st.rerun()
+
+    with preset_cols[-1]:
+        if st.button("Restablecer base", key="btn_reset_base", use_container_width=True):
+            aplicar_preset(VALORES_BASE)
+            st.rerun()
+
     with st.form("form_transaccion"):
         c1, c2, c3 = st.columns(3)
         with c1:
-            step = st.number_input("Step (hora / paso)", min_value=1, value=1, step=1)
+            step = st.number_input("Step (hora / paso)", min_value=1, step=1, key="step")
             tx_type = st.selectbox(
                 "Tipo de transacción",
                 options=["TRANSFER", "CASH_OUT", "PAYMENT", "CASH_IN", "DEBIT"],
-                index=0,
+                key="tx_type",
             )
-            amount = st.number_input("Monto (amount)", min_value=0.0, value=1000.0, step=100.0)
+            amount = st.number_input("Monto (amount)", min_value=0.0, step=100.0, key="amount")
         with c2:
-            oldbalance_org = st.number_input("Saldo origen anterior", min_value=0.0, value=5000.0, step=100.0)
-            newbalance_orig = st.number_input("Saldo origen nuevo", min_value=0.0, value=4000.0, step=100.0)
+            oldbalance_org = st.number_input(
+                "Saldo origen anterior", min_value=0.0, step=100.0, key="oldbalance_org"
+            )
+            newbalance_orig = st.number_input(
+                "Saldo origen nuevo", min_value=0.0, step=100.0, key="newbalance_orig"
+            )
         with c3:
-            oldbalance_dest = st.number_input("Saldo destino anterior", min_value=0.0, value=0.0, step=100.0)
-            newbalance_dest = st.number_input("Saldo destino nuevo", min_value=0.0, value=1000.0, step=100.0)
+            oldbalance_dest = st.number_input(
+                "Saldo destino anterior", min_value=0.0, step=100.0, key="oldbalance_dest"
+            )
+            newbalance_dest = st.number_input(
+                "Saldo destino nuevo", min_value=0.0, step=100.0, key="newbalance_dest"
+            )
 
         submitted = st.form_submit_button("Evaluar transacción", type="primary")
 
