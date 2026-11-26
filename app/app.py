@@ -39,6 +39,7 @@ NOMBRES_CASOS = [
     "Pago normal",
     "Vaciado total + TRANSFER",
     "Descuadre saldo origen",
+    "Monto muy alto",
 ]
 
 
@@ -70,6 +71,22 @@ def generar_caso_aleatorio(nombre_caso: str) -> dict:
             "amount": amount,
             "oldbalance_org": amount,
             "newbalance_orig": 0.0,
+            "oldbalance_dest": old_dest,
+            "newbalance_dest": new_dest,
+        }
+
+    if nombre_caso == "Monto muy alto":
+        amount = round(random.uniform(450000.0, 1500000.0), 2)
+        old_org = round(amount + random.uniform(50000.0, 600000.0), 2)
+        new_org = round(max(old_org - amount, 0.0), 2)
+        old_dest = round(random.uniform(0.0, 200000.0), 2)
+        new_dest = round(old_dest + amount, 2)
+        return {
+            "step": random.randint(1, 168),
+            "tx_type": random.choice(["TRANSFER", "CASH_OUT"]),
+            "amount": amount,
+            "oldbalance_org": old_org,
+            "newbalance_orig": new_org,
             "oldbalance_dest": old_dest,
             "newbalance_dest": new_dest,
         }
