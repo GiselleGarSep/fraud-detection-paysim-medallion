@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import altair as alt
 import httpx
 import pandas as pd
 import streamlit as st
@@ -132,6 +133,10 @@ def construir_dataframe_bitacora(registros: object) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(filas_limpias)
+    for num_col in ("amount", "fraud_probability", "step"):
+        if num_col in df.columns:
+            df[num_col] = pd.to_numeric(df[num_col], errors="coerce")
+
     prioridad = [
         "tx_type",
         "risk_level",
@@ -144,6 +149,83 @@ def construir_dataframe_bitacora(registros: object) -> pd.DataFrame:
     cols_prioritarias = [c for c in prioridad if c in df.columns]
     cols_restantes = [c for c in df.columns if c not in cols_prioritarias]
     return df[cols_prioritarias + cols_restantes]
+
+
+def renderizar_graficas_bitacora(df: pd.DataFrame) -> None:
+    """Renderiza dos gráficas interactivas clave sobre el DataFrame ya filtrado."""
+    if df.empty:
+        return
+
+    g1, g2 = st.columns(2)
+
+    with g1:
+        st.markdown("#### Transacciones por nivel de riesgo")
+        if "risk_level" in df.columns:
+            df_riesgo = (
+                df.assign(risk_level=df["risk_level"].fillna("UNKNOWN").astype(str))
+                .groupby("risk_level", as_index=False)
+                .size()
+                .rename(columns={"size": "cantidad"})
+            )
+            chart_riesgo = (
+                alt.Chart(df_riesgo)
+                .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                .encode(
+                    x=alt.X("risk_level:N", title="Nivel de riesgo", sort="-y"),
+                    y=alt.Y("cantidad:Q", title="Cantidad"),
+                    color=alt.Color("risk_level:N", legend=None),
+                    tooltip=[
+                        alt.Tooltip("risk_level:N", title="Nivel de riesgo"),
+                        alt.Tooltip("cantidad:Q", title="Transacciones"),
+                    ],
+                )
+                .properties(height=280)
+            )
+            st.altair_chart(chart_riesgo, use_container_width=True)
+        else:
+            st.info("No hay columna `risk_level` disponible para graficar.")
+
+    with g2:
+        st.markdown("#### Monto vs. probabilidad de fraude")
+        if {"amount", "fraud_probability"}.issubset(df.columns):
+            df_scatter = df.dropna(subset=["amount", "fraud_probability"]).copy()
+            if not df_scatter.empty:
+                df_scatter["risk_label"] = (
+                    df_scatter["risk_level"].fillna("UNKNOWN").astype(str)
+                    if "risk_level" in df_scatter.columns
+                    else "UNKNOWN"
+                )
+                df_scatter["tx_label"] = (
+                    df_scatter["tx_type"].fillna("N/A").astype(str)
+                    if "tx_type" in df_scatter.columns
+                    else "N/A"
+                )
+                chart_scatter = (
+                    alt.Chart(df_scatter)
+                    .mark_circle(size=85, opacity=0.8)
+                    .encode(
+                        x=alt.X("amount:Q", title="Monto ($)"),
+                        y=alt.Y(
+                            "fraud_probability:Q",
+                            title="Probabilidad de fraude",
+                            scale=alt.Scale(domain=[0, 1]),
+                        ),
+                        color=alt.Color("risk_label:N", title="Riesgo"),
+                        tooltip=[
+                            alt.Tooltip("tx_label:N", title="Tipo"),
+                            alt.Tooltip("risk_label:N", title="Riesgo"),
+                            alt.Tooltip("amount:Q", title="Monto", format=",.2f"),
+                            alt.Tooltip("fraud_probability:Q", title="Probabilidad", format=".2%"),
+                        ],
+                    )
+                    .properties(height=280)
+                    .interactive()
+                )
+                st.altair_chart(chart_scatter, use_container_width=True)
+            else:
+                st.info("No hay datos numéricos válidos en monto y probabilidad.")
+        else:
+            st.info("Faltan columnas `amount` o `fraud_probability` para la dispersión.")
 
 
 inicializar_estado_formulario()
@@ -364,6 +446,8 @@ with tab_bitacora:
 
             monto_total = float(df_filtrado["amount"].sum()) if "amount" in df_filtrado.columns else 0.0
             k3.metric("Monto acumulado", f"${monto_total:,.2f}")
+
+            renderizar_graficas_bitacora(df_filtrado)
 
             st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
 
