@@ -79,7 +79,15 @@ def construir_dataframe_bitacora(registros: object) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(filas_limpias)
-    prioridad = ["tx_type", "risk_level", "fraud_probability", "amount", "is_fraud_prediction"]
+    prioridad = [
+        "tx_type",
+        "risk_level",
+        "fraud_probability",
+        "amount",
+        "is_fraud_prediction",
+        "model_version",
+        "reasons",
+    ]
     cols_prioritarias = [c for c in prioridad if c in df.columns]
     cols_restantes = [c for c in df.columns if c not in cols_prioritarias]
     return df[cols_prioritarias + cols_restantes]
@@ -150,6 +158,9 @@ with tab_eval:
             pred = data.get("is_fraud_prediction", 0)
             prob = data.get("fraud_probability", 0.0)
             risk = data.get("risk_level", "UNKNOWN")
+            model_version = str(data.get("model_version") or "unknown")
+            raw_reasons = data.get("reasons")
+            reasons = [str(r) for r in raw_reasons] if isinstance(raw_reasons, list) else []
 
             m1, m2, m3 = st.columns(3)
             m1.metric("Predicción", "POSIBLE FRAUDE" if pred == 1 else "TRANSACCIÓN NORMAL")
@@ -158,6 +169,15 @@ with tab_eval:
                 f"{float(prob):.2%}" if float(prob) <= 1 else f"{float(prob):.4f}",
             )
             m3.metric("Nivel de riesgo", str(risk))
+
+            st.caption(f"Versión del modelo: `{model_version}`")
+
+            st.markdown("### Motivos de la evaluación")
+            if reasons:
+                for reason in reasons:
+                    st.markdown(f"- {reason}")
+            else:
+                st.info("No se registraron motivos adicionales para esta transacción.")
 
             # --- Tarjeta visual según el nivel de riesgo ---
             riesgo_norm = str(risk).strip().lower()
@@ -185,6 +205,8 @@ with tab_eval:
                 "is_fraud_prediction": int(pred if pred is not None else 0),
                 "fraud_probability": float(prob if prob is not None else 0.0),
                 "risk_level": str(risk if risk is not None else "UNKNOWN"),
+                "model_version": model_version,
+                "reasons": reasons,
             }
             try:
                 guardar_prediccion(registro)
