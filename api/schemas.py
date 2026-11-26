@@ -24,3 +24,5 @@ class PredictionResponse(BaseModel):
     is_fraud_prediction: int = Field(..., description="1 = posible fraude, 0 = no fraude")
     fraud_probability: float = Field(..., ge=0.0, le=1.0)
     risk_level: str = Field(..., description="LOW, MEDIUM o HIGH")
+    model_version: str = "medallion-fraud-v1.1"
+    reasons: List[str] = Field(default_factory=list)
