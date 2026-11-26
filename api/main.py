@@ -1,8 +1,16 @@
 from typing import List, Literal
 
 from fastapi import FastAPI, HTTPException
-from model_service import score_transaction
-from schemas import PredictionResponse, TransactionRequest
+
+try:
+    from .model_service import score_transaction
+except ImportError:
+    from api.model_service import score_transaction
+
+try:
+    from .schemas import PredictionResponse, TransactionRequest
+except ImportError:
+    from api.schemas import PredictionResponse, TransactionRequest
 
 MODEL_VERSION = "medallion-fraud-v1.1"
 

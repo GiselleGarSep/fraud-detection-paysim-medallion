@@ -1,7 +1,11 @@
 import math
 import os
-from schemas import PredictionResponse, TransactionRequest
 
+try:
+    from .schemas import PredictionResponse, TransactionRequest
+except ImportError:
+    from api.schemas import PredictionResponse, TransactionRequest
+    
 TYPE_INDEX = {
     "CASH_IN": 0,
     "CASH_OUT": 1,
