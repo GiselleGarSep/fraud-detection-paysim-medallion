@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import random
 import altair as alt
 import httpx
 import pandas as pd
@@ -34,35 +35,62 @@ VALORES_BASE = {
     "newbalance_dest": 1000.0,
 }
 
-CASOS_PRUEBA = {
-    "Pago normal": {
-        "step": 12,
-        "tx_type": "PAYMENT",
-        "amount": 1500.0,
-        "oldbalance_org": 10000.0,
-        "newbalance_orig": 8500.0,
-        "oldbalance_dest": 0.0,
-        "newbalance_dest": 0.0,
-    },
-    "Vaciado total + TRANSFER": {
-        "step": 48,
-        "tx_type": "TRANSFER",
-        "amount": 250000.0,
-        "oldbalance_org": 250000.0,
-        "newbalance_orig": 0.0,
-        "oldbalance_dest": 0.0,
-        "newbalance_dest": 0.0,
-    },
-    "Descuadre saldo origen": {
-        "step": 96,
-        "tx_type": "CASH_OUT",
-        "amount": 50000.0,
-        "oldbalance_org": 80000.0,
-        "newbalance_orig": 50000.0,
-        "oldbalance_dest": 12000.0,
-        "newbalance_dest": 62000.0,
-    },
-}
+NOMBRES_CASOS = [
+    "Pago normal",
+    "Vaciado total + TRANSFER",
+    "Descuadre saldo origen",
+]
+
+
+def generar_caso_aleatorio(nombre_caso: str) -> dict:
+    """Genera valores aleatorios coherentes según el escenario de prueba elegido."""
+    if nombre_caso == "Pago normal":
+        amount = round(random.uniform(500.0, 8000.0), 2)
+        old_org = round(amount + random.uniform(1000.0, 25000.0), 2)
+        new_org = round(max(old_org - amount, 0.0), 2)
+        old_dest = round(random.uniform(0.0, 10000.0), 2)
+        new_dest = old_dest
+        return {
+            "step": random.randint(1, 168),
+            "tx_type": "PAYMENT",
+            "amount": amount,
+            "oldbalance_org": old_org,
+            "newbalance_orig": new_org,
+            "oldbalance_dest": old_dest,
+            "newbalance_dest": new_dest,
+        }
+
+    if nombre_caso == "Vaciado total + TRANSFER":
+        amount = round(random.uniform(50000.0, 400000.0), 2)
+        old_dest = round(random.uniform(0.0, 50000.0), 2)
+        new_dest = round(old_dest + random.choice([0.0, amount]), 2)
+        return {
+            "step": random.randint(1, 168),
+            "tx_type": "TRANSFER",
+            "amount": amount,
+            "oldbalance_org": amount,
+            "newbalance_orig": 0.0,
+            "oldbalance_dest": old_dest,
+            "newbalance_dest": new_dest,
+        }
+
+    # Descuadre saldo origen
+    amount = round(random.uniform(15000.0, 180000.0), 2)
+    old_org = round(amount + random.uniform(10000.0, 120000.0), 2)
+    esperado_orig = max(old_org - amount, 0.0)
+    desviacion = round(random.uniform(2000.0, max(amount * 0.5, 5000.0)), 2)
+    new_org = round(max(esperado_orig + desviacion, 0.0), 2)
+    old_dest = round(random.uniform(0.0, 40000.0), 2)
+    new_dest = round(old_dest + amount, 2)
+    return {
+        "step": random.randint(1, 168),
+        "tx_type": random.choice(["CASH_OUT", "TRANSFER"]),
+        "amount": amount,
+        "oldbalance_org": old_org,
+        "newbalance_orig": new_org,
+        "oldbalance_dest": old_dest,
+        "newbalance_dest": new_dest,
+    }
 
 
 def inicializar_estado_formulario() -> None:
@@ -318,13 +346,13 @@ tab_eval, tab_bitacora = st.tabs(["🔍 Evaluación", "📋 Bitácora"])
 
 with tab_eval:
     st.subheader("Evaluar transacción")
-    st.caption("Casos de prueba rápidos (rellenan los campos antes de evaluar):")
+    st.caption("Casos de prueba rápidos aleatorios (generan valores distintos en cada clic):")
 
-    preset_cols = st.columns(len(CASOS_PRUEBA) + 1)
-    for idx, (nombre_caso, valores_caso) in enumerate(CASOS_PRUEBA.items()):
+    preset_cols = st.columns(len(NOMBRES_CASOS) + 1)
+    for idx, nombre_caso in enumerate(NOMBRES_CASOS):
         with preset_cols[idx]:
             if st.button(nombre_caso, key=f"btn_preset_{idx}", use_container_width=True):
-                aplicar_preset(valores_caso)
+                aplicar_preset(generar_caso_aleatorio(nombre_caso))
                 st.rerun()
 
     with preset_cols[-1]:
