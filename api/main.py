@@ -12,6 +12,17 @@ app = FastAPI(
 )
 
 
+@app.get("/", tags=["Info"])
+def root():
+    return {
+        "status": "ok",
+        "service": "Fraud Detection API",
+        "health": "/health",
+        "docs": "/docs",
+        "predict": "/predict",
+    }
+
+
 @app.get("/health", tags=["Health"])
 def health():
     return {"status": "ok", "service": "fraud-detection-api"}

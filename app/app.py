@@ -3,6 +3,9 @@ from pathlib import Path
 import httpx
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from supabase_log import guardar_prediccion, obtener_bitacora, supabase_configurado
 
@@ -17,7 +20,7 @@ st.set_page_config(
     layout="wide",
 )
 
-DEFAULT_API_URL = os.getenv("FRAUD_API_URL", "http://localhost:8000")
+DEFAULT_API_URL = os.getenv("FRAUD_API_URL") or os.getenv("API_BASE_URL", "http://localhost:8000")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "10.0"))
 
 
@@ -249,4 +252,26 @@ with tab_bitacora:
                     (df_filtrado["amount"] >= rango_amt[0]) & (df_filtrado["amount"] <= rango_amt[1])
                 ]
 
+            # --- Métricas rápidas de la bitácora filtrada ---
+            k1, k2, k3 = st.columns(3)
+            total_reg = len(df_filtrado)
+            k1.metric("Transacciones evaluadas", total_reg)
+
+            if "risk_level" in df_filtrado.columns:
+                alto_riesgo = df_filtrado["risk_level"].astype(str).str.lower().str.contains("alto|high").sum()
+            else:
+                alto_riesgo = 0
+            k2.metric("Riesgo alto", int(alto_riesgo))
+
+            monto_total = float(df_filtrado["amount"].sum()) if "amount" in df_filtrado.columns else 0.0
+            k3.metric("Monto acumulado", f"${monto_total:,.2f}")
+
             st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+
+            csv_bytes = df_filtrado.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="⬇️ Descargar bitácora (CSV)",
+                data=csv_bytes,
+                file_name="bitacora_fraude.csv",
+                mime="text/csv",
+            )
